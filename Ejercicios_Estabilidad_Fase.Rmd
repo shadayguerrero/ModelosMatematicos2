@@ -1,0 +1,236 @@
+---
+title: "Modelación Matemática en Ecología: Análisis de Estabilidad y Retratos de Fase"
+author: "Manus AI"
+date: "23 de marzo de 2026"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Análisis Cualitativo de Sistemas Dinámicos
+
+En esta clase práctica avanzada, nos enfocaremos en las herramientas matemáticas fundamentales para analizar sistemas de ecuaciones diferenciales no lineales: **búsqueda de puntos de equilibrio, linealización (Matriz Jacobiana), análisis de estabilidad (eigenvalores) y construcción de retratos de fase**.
+
+Utilizaremos R y los paquetes `deSolve` (para simulación) y `phaseR` (especializado en retratos de fase y análisis cualitativo).
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# Instalar y cargar paquetes necesarios
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2, deSolve, phaseR, gridExtra)
+```
+
+---
+
+## Metodología General de Análisis
+
+Para cualquier sistema de dos ecuaciones diferenciales $\frac{dx}{dt} = f(x,y)$ y $\frac{dy}{dt} = g(x,y)$, el procedimiento estándar es:
+
+1.  **Encontrar Puntos de Equilibrio:** Resolver el sistema algebraico $f(x,y) = 0$ y $g(x,y) = 0$ simultáneamente.
+2.  **Calcular la Matriz Jacobiana:** Encontrar las derivadas parciales:
+    $$ J(x,y) = \begin{pmatrix} \frac{\partial f}{\partial x} & \frac{\partial f}{\partial y} \\ \frac{\partial g}{\partial x} & \frac{\partial g}{\partial y} \end{pmatrix} $$
+3.  **Evaluar el Jacobiano en cada Equilibrio:** Sustituir las coordenadas de cada punto de equilibrio $(x^*, y^*)$ en la matriz $J$.
+4.  **Calcular Eigenvalores (Valores Propios):** Encontrar los valores $\lambda$ que resuelven $\det(J - \lambda I) = 0$.
+5.  **Determinar la Estabilidad:**
+    -   Si ambos eigenvalores tienen parte real negativa $\to$ **Nodo Estable** o **Foco Estable** (Atractor).
+    -   Si ambos eigenvalores tienen parte real positiva $\to$ **Nodo Inestable** o **Foco Inestable** (Repulsor).
+    -   Si un eigenvalor es positivo y el otro negativo $\to$ **Punto de Silla** (Inestable).
+    -   Si los eigenvalores son imaginarios puros (parte real cero) $\to$ **Centro** (Órbitas periódicas, neutralmente estable).
+
+---
+
+## Ejercicio Guiado 1: Competencia Interespecífica (Modelo de Lotka-Volterra)
+
+Consideremos dos especies que compiten por el mismo recurso. El modelo es:
+
+$$ \frac{dx}{dt} = x(1 - x - \alpha y) $$
+$$ \frac{dy}{dt} = y(1 - y - \beta x) $$
+
+Donde $\alpha$ y $\beta$ son los coeficientes de competencia. Supongamos $\alpha = 0.5$ y $\beta = 0.5$ (competencia débil).
+
+### Paso 1: Puntos de Equilibrio
+Igualamos a cero:
+1. $x(1 - x - 0.5y) = 0$
+2. $y(1 - y - 0.5x) = 0$
+
+Los equilibrios son:
+- $E_1 = (0, 0)$ (Extinción de ambas)
+- $E_2 = (1, 0)$ (Sobrevive solo x)
+- $E_3 = (0, 1)$ (Sobrevive solo y)
+- $E_4$: Resolvemos $1 - x - 0.5y = 0$ y $1 - y - 0.5x = 0$. Multiplicando la segunda por 2: $2 - 2y - x = 0 \implies x = 2 - 2y$. Sustituyendo en la primera: $1 - (2 - 2y) - 0.5y = 0 \implies -1 + 1.5y = 0 \implies y = 2/3$. Entonces $x = 2 - 2(2/3) = 2/3$.
+- $E_4 = (2/3, 2/3)$ (Coexistencia)
+
+### Paso 2 y 3: Matriz Jacobiana y Evaluación
+$$ f(x,y) = x - x^2 - 0.5xy $$
+$$ g(x,y) = y - y^2 - 0.5xy $$
+
+$$ J(x,y) = \begin{pmatrix} 1 - 2x - 0.5y & -0.5x \\ -0.5y & 1 - 2y - 0.5x \end{pmatrix} $$
+
+Evaluamos en $E_4 = (2/3, 2/3)$:
+$$ J(2/3, 2/3) = \begin{pmatrix} 1 - 4/3 - 1/3 & -1/3 \\ -1/3 & 1 - 4/3 - 1/3 \end{pmatrix} = \begin{pmatrix} -2/3 & -1/3 \\ -1/3 & -2/3 \end{pmatrix} $$
+
+### Paso 4 y 5: Eigenvalores y Estabilidad (con R)
+
+```{r comp_eigen}
+# Matriz Jacobiana en E4
+J_E4 <- matrix(c(-2/3, -1/3, -1/3, -2/3), nrow = 2, byrow = TRUE)
+eigen_E4 <- eigen(J_E4)$values
+print(eigen_E4)
+```
+
+Ambos eigenvalores son reales y negativos (-1 y -0.333). Por lo tanto, el equilibrio de coexistencia $E_4$ es un **Nodo Estable**.
+
+### Retrato de Fase con `phaseR`
+
+```{r comp_phase, fig.width=8, fig.height=6}
+# Definir el modelo para phaseR
+comp_model <- function(t, y, parameters) {
+  x <- y[1]
+  y_var <- y[2]
+  alpha <- parameters[1]
+  beta <- parameters[2]
+  
+  dx <- x * (1 - x - alpha * y_var)
+  dy <- y_var * (1 - y_var - beta * x)
+  
+  list(c(dx, dy))
+}
+
+params_comp <- c(alpha = 0.5, beta = 0.5)
+
+# Crear el retrato de fase
+flowField(comp_model, xlim = c(0, 1.5), ylim = c(0, 1.5), parameters = params_comp, 
+          points = 20, add = FALSE, xlab = "Especie x", ylab = "Especie y", 
+          main = "Retrato de Fase: Competencia Débil")
+
+# Añadir isoclinas nulas
+nullclines(comp_model, xlim = c(0, 1.5), ylim = c(0, 1.5), parameters = params_comp, 
+           points = 500, col = c("blue", "red"), lwd = 2)
+
+# Añadir trayectorias desde diferentes puntos iniciales
+trajectory(comp_model, y0 = c(0.1, 1.2), tlim = c(0, 20), parameters = params_comp, col = "black", lwd = 2)
+trajectory(comp_model, y0 = c(1.2, 0.1), tlim = c(0, 20), parameters = params_comp, col = "black", lwd = 2)
+trajectory(comp_model, y0 = c(0.1, 0.1), tlim = c(0, 20), parameters = params_comp, col = "black", lwd = 2)
+
+# Marcar el punto de equilibrio estable
+points(2/3, 2/3, pch = 19, col = "darkgreen", cex = 2)
+legend("topright", legend = c("Isoclina dx/dt=0", "Isoclina dy/dt=0", "Trayectorias", "Equilibrio Estable"), 
+       col = c("blue", "red", "black", "darkgreen"), lty = c(1, 1, 1, NA), pch = c(NA, NA, NA, 19), lwd = c(2, 2, 2, NA))
+```
+
+---
+
+## Ejercicio Propuesto 1: Competencia Fuerte (Exclusión Competitiva)
+
+Modifica el modelo anterior cambiando los parámetros a $\alpha = 2$ y $\beta = 2$ (competencia fuerte).
+
+1.  Encuentra matemáticamente el nuevo punto de equilibrio de coexistencia $E_4$.
+2.  Calcula la Matriz Jacobiana evaluada en este nuevo $E_4$.
+3.  Usa R para calcular los eigenvalores. ¿Qué tipo de equilibrio es ahora? (Pista: uno será positivo y otro negativo).
+4.  Genera el retrato de fase usando `phaseR` con estos nuevos parámetros. Dibuja trayectorias desde $(0.1, 0.8)$ y $(0.8, 0.1)$. ¿Qué especie sobrevive en cada caso?
+
+---
+
+## Ejercicio Guiado 2: Depredador-Presa con Crecimiento Logístico (Modelo de Rosenzweig-MacArthur)
+
+El modelo clásico de Lotka-Volterra asume crecimiento exponencial de las presas, lo cual es irreal. Añadamos capacidad de carga ($K$) a las presas:
+
+$$ \frac{dx}{dt} = rx\left(1 - \frac{x}{K}\right) - axy $$
+$$ \frac{dy}{dt} = eaxy - my $$
+
+Parámetros: $r = 1.0$, $K = 10$, $a = 0.2$, $e = 0.5$, $m = 0.5$.
+
+### Análisis de Equilibrios y Estabilidad
+
+```{r pred_prey_logistic}
+# Parámetros
+r <- 1.0; K <- 10; a <- 0.2; e <- 0.5; m <- 0.5
+
+# Equilibrio no trivial (coexistencia)
+# De dy/dt = 0 -> x* = m / (ea)
+x_star <- m / (e * a)
+# De dx/dt = 0 -> y* = (r/a) * (1 - x*/K)
+y_star <- (r / a) * (1 - x_star / K)
+
+cat("Equilibrio de coexistencia: x* =", x_star, ", y* =", y_star, "\n")
+
+# Matriz Jacobiana evaluada en (x*, y*)
+# J11 = r - 2rx/K - ay
+# J12 = -ax
+# J21 = eay
+# J22 = eax - m
+J11 <- r - 2*r*x_star/K - a*y_star
+J12 <- -a*x_star
+J21 <- e*a*y_star
+J22 <- e*a*x_star - m
+
+J_RM <- matrix(c(J11, J12, J21, J22), nrow = 2, byrow = TRUE)
+eigen_RM <- eigen(J_RM)$values
+print(eigen_RM)
+```
+
+Los eigenvalores son complejos conjugados con parte real negativa ($-0.25 \pm 0.661i$). Esto indica que el equilibrio es un **Foco Estable** (las trayectorias espiralan hacia el equilibrio).
+
+### Retrato de Fase
+
+```{r pred_prey_phase, fig.width=8, fig.height=6}
+rm_model <- function(t, y, parameters) {
+  x <- y[1]
+  y_var <- y[2]
+  r <- parameters[1]; K <- parameters[2]; a <- parameters[3]; e <- parameters[4]; m <- parameters[5]
+  
+  dx <- r * x * (1 - x / K) - a * x * y_var
+  dy <- e * a * x * y_var - m * y_var
+  
+  list(c(dx, dy))
+}
+
+params_rm <- c(r = 1.0, K = 10, a = 0.2, e = 0.5, m = 0.5)
+
+flowField(rm_model, xlim = c(0, 12), ylim = c(0, 5), parameters = params_rm, 
+          points = 20, add = FALSE, xlab = "Presas (x)", ylab = "Depredadores (y)", 
+          main = "Retrato de Fase: Depredador-Presa con Capacidad de Carga")
+
+nullclines(rm_model, xlim = c(0, 12), ylim = c(0, 5), parameters = params_rm, 
+           points = 500, col = c("blue", "red"), lwd = 2)
+
+trajectory(rm_model, y0 = c(1, 1), tlim = c(0, 50), parameters = params_rm, col = "black", lwd = 2)
+trajectory(rm_model, y0 = c(10, 4), tlim = c(0, 50), parameters = params_rm, col = "black", lwd = 2)
+
+points(x_star, y_star, pch = 19, col = "darkgreen", cex = 2)
+```
+
+Observa cómo las trayectorias (líneas negras) forman espirales que convergen hacia el punto de equilibrio verde. Esto contrasta con el modelo clásico de Lotka-Volterra, donde las órbitas son cerradas (centros).
+
+---
+
+## Ejercicio Propuesto 2: La Paradoja del Enriquecimiento
+
+En el modelo anterior, ¿qué sucede si aumentamos drásticamente la capacidad de carga del ecosistema (por ejemplo, añadiendo fertilizantes)?
+
+1.  Cambia el parámetro $K$ de 10 a 30.
+2.  Calcula el nuevo punto de equilibrio $(x^*, y^*)$.
+3.  Calcula la nueva Matriz Jacobiana y sus eigenvalores. ¿Qué signo tiene ahora la parte real de los eigenvalores? ¿Qué tipo de equilibrio es?
+4.  Genera el retrato de fase con $K=30$. Simula una trayectoria comenzando cerca del equilibrio, por ejemplo en $(x^*+0.1, y^*+0.1)$.
+5.  **Reflexión Ecológica:** A este fenómeno se le llama la "Paradoja del Enriquecimiento". Enriquecer el ecosistema (aumentar $K$) desestabiliza el sistema, creando ciclos límite de gran amplitud que pueden llevar a la extinción estocástica. Explica por qué ocurre esto basándote en tus gráficas.
+
+---
+
+## Ejercicio Propuesto 3: Modelo Epidemiológico SIR
+
+Considera el modelo clásico Susceptible-Infectado-Recuperado (SIR) sin nacimientos ni muertes:
+
+$$ \frac{dS}{dt} = -\beta S I $$
+$$ \frac{dI}{dt} = \beta S I - \gamma I $$
+$$ \frac{dR}{dt} = \gamma I $$
+
+Dado que $S + I + R = N$ (población total constante), podemos ignorar $R$ y analizar el sistema 2D en el plano $(S, I)$.
+
+Parámetros: $\beta = 0.001$, $\gamma = 0.1$, $N = 1000$.
+
+1.  Encuentra los puntos de equilibrio del sistema 2D $(S, I)$. (Pista: hay toda una línea de equilibrios).
+2.  Calcula la Matriz Jacobiana.
+3.  Evalúa el Jacobiano en un punto de equilibrio genérico $(S^*, 0)$. Calcula los eigenvalores.
+4.  Demuestra matemáticamente que si $S^* > \gamma/\beta$, el equilibrio es inestable (epidemia), y si $S^* < \gamma/\beta$, el equilibrio es estable (no hay epidemia). Relaciona esto con el número reproductivo básico $R_0$.
+5.  Usa `phaseR` para graficar el retrato de fase en el rango $S \in [0, 1000]$ e $I \in [0, 500]$. Dibuja varias trayectorias comenzando con diferentes números de susceptibles iniciales y 1 infectado.

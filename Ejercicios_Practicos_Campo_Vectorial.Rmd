@@ -1,0 +1,554 @@
+---
+title: "Ejercicios Prácticos: Campos Vectoriales y Puntos de Equilibrio en R"
+author: "Manus AI"
+date: "23 de marzo de 2026"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+# Análisis Gráfico de Sistemas Dinámicos en R
+
+En esta clase práctica, aprenderemos a visualizar sistemas de ecuaciones diferenciales mediante:
+1. **Campos vectoriales (campos de direcciones):** Flechas que muestran la dirección del movimiento
+2. **Puntos de equilibrio:** Donde el sistema no cambia
+3. **Isoclinas nulas:** Líneas donde cada variable no cambia
+4. **Trayectorias:** Caminos que sigue el sistema en el tiempo
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# Instalar y cargar paquetes necesarios
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2, deSolve, gridExtra, tidyverse)
+```
+
+---
+
+## Función Auxiliar: Crear Campo Vectorial
+
+Primero, crearemos una función reutilizable que genera un campo vectorial para cualquier sistema 2D:
+
+```{r campo_vectorial_funcion}
+# Función para crear un campo vectorial
+crear_campo_vectorial <- function(dx_func, dy_func, x_range, y_range, 
+                                  n_points = 15, escala = 0.5) {
+  # Crear una malla de puntos
+  x_vals <- seq(x_range[1], x_range[2], length.out = n_points)
+  y_vals <- seq(y_range[1], y_range[2], length.out = n_points)
+  
+  # Crear todas las combinaciones
+  grid <- expand.grid(x = x_vals, y = y_vals)
+  
+  # Calcular las derivadas en cada punto
+  grid$dx <- dx_func(grid$x, grid$y)
+  grid$dy <- dy_func(grid$x, grid$y)
+  
+  # Normalizar las flechas para que tengan tamaño consistente
+  magnitud <- sqrt(grid$dx^2 + grid$dy^2)
+  magnitud[magnitud == 0] <- 1  # Evitar división por cero
+  
+  grid$dx_norm <- (grid$dx / magnitud) * escala
+  grid$dy_norm <- (grid$dy / magnitud) * escala
+  
+  return(grid)
+}
+
+# Función para graficar el campo vectorial con ggplot2
+graficar_campo <- function(campo_df, titulo = "", x_label = "x", y_label = "y") {
+  ggplot(campo_df, aes(x = x, y = y)) +
+    geom_segment(aes(xend = x + dx_norm, yend = y + dy_norm),
+                 arrow = arrow(length = unit(0.15, "cm")),
+                 color = "steelblue", alpha = 0.7) +
+    labs(title = titulo, x = x_label, y = y_label) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+}
+```
+
+---
+
+## Ejercicio 1: Competencia Interespecífica (Modelo Lotka-Volterra)
+
+**Sistema:**
+$$\frac{dx}{dt} = x(2 - 2x - y)$$
+$$\frac{dy}{dt} = y(1.5 - x - 1.5y)$$
+
+Donde $x$ e $y$ son poblaciones de dos especies competidoras.
+
+### Paso 1: Definir el modelo
+
+```{r ejercicio1_modelo}
+# Definir las funciones dx/dt y dy/dt
+dx_comp <- function(x, y) {
+  x * (2 - 2*x - y)
+}
+
+dy_comp <- function(x, y) {
+  y * (1.5 - x - 1.5*y)
+}
+```
+
+### Paso 2: Encontrar puntos de equilibrio
+
+```{r ejercicio1_equilibrios}
+# Puntos de equilibrio (solución analítica)
+# E1: (0, 0)
+# E2: (1, 0)
+# E3: (0, 1)
+# E4: Resolvemos 2 - 2x - y = 0 y 1.5 - x - 1.5y = 0
+# De la primera: y = 2 - 2x
+# Sustituyendo en la segunda: 1.5 - x - 1.5(2 - 2x) = 0
+# 1.5 - x - 3 + 3x = 0
+# 2x - 1.5 = 0
+# x = 0.75, y = 2 - 2(0.75) = 0.5
+
+equilibrios <- data.frame(
+  nombre = c("E1", "E2", "E3", "E4"),
+  x = c(0, 1, 0, 0.75),
+  y = c(0, 0, 1, 0.5)
+)
+
+print(equilibrios)
+```
+
+### Paso 3: Crear el campo vectorial
+
+```{r ejercicio1_campo}
+# Crear el campo vectorial
+campo_comp <- crear_campo_vectorial(
+  dx_func = dx_comp,
+  dy_func = dy_comp,
+  x_range = c(-0.2, 1.5),
+  y_range = c(-0.2, 1.5),
+  n_points = 15,
+  escala = 0.08
+)
+```
+
+### Paso 4: Graficar con puntos de equilibrio
+
+```{r ejercicio1_grafica, fig.width=10, fig.height=8}
+p1 <- graficar_campo(campo_comp, 
+                     titulo = "Competencia Interespecífica - Campo Vectorial",
+                     x_label = "Especie x",
+                     y_label = "Especie y") +
+  # Añadir puntos de equilibrio
+  geom_point(data = equilibrios, aes(x = x, y = y, color = nombre), 
+             size = 5, shape = 21, fill = "white", stroke = 2) +
+  scale_color_manual(values = c("E1" = "black", "E2" = "red", "E3" = "blue", "E4" = "green")) +
+  labs(color = "Equilibrio") +
+  xlim(-0.2, 1.5) +
+  ylim(-0.2, 1.5)
+
+print(p1)
+```
+
+### Paso 5: Añadir isoclinas nulas
+
+Las isoclinas nulas son las líneas donde $\frac{dx}{dt} = 0$ o $\frac{dy}{dt} = 0$.
+
+```{r ejercicio1_isoclinas}
+# Isoclinas nulas para dx/dt = 0:
+# x(2 - 2x - y) = 0
+# x = 0 o 2 - 2x - y = 0 => y = 2 - 2x
+
+# Isoclinas nulas para dy/dt = 0:
+# y(1.5 - x - 1.5y) = 0
+# y = 0 o 1.5 - x - 1.5y = 0 => y = (1.5 - x) / 1.5
+
+# Crear datos para las isoclinas
+x_iso <- seq(-0.2, 1.5, length.out = 100)
+isoclina_x1 <- data.frame(x = 0, y = seq(-0.2, 1.5, length.out = 100), tipo = "dx/dt = 0 (x=0)")
+isoclina_x2 <- data.frame(x = x_iso, y = 2 - 2*x_iso, tipo = "dx/dt = 0 (y=2-2x)")
+isoclina_y1 <- data.frame(x = seq(-0.2, 1.5, length.out = 100), y = 0, tipo = "dy/dt = 0 (y=0)")
+isoclina_y2 <- data.frame(x = x_iso, y = (1.5 - x_iso) / 1.5, tipo = "dy/dt = 0 (y=(1.5-x)/1.5)")
+
+isoclinas <- rbind(isoclina_x1, isoclina_x2, isoclina_y1, isoclina_y2)
+
+# Graficar con isoclinas
+p2 <- graficar_campo(campo_comp, 
+                     titulo = "Competencia - Campo Vectorial + Isoclinas Nulas",
+                     x_label = "Especie x",
+                     y_label = "Especie y") +
+  # Añadir isoclinas
+  geom_line(data = isoclinas, aes(x = x, y = y, color = tipo, linetype = tipo), 
+            size = 1.2, alpha = 0.8) +
+  scale_color_manual(values = c("dx/dt = 0 (x=0)" = "red", 
+                                "dx/dt = 0 (y=2-2x)" = "red",
+                                "dy/dt = 0 (y=0)" = "blue",
+                                "dy/dt = 0 (y=(1.5-x)/1.5)" = "blue")) +
+  scale_linetype_manual(values = c("dx/dt = 0 (x=0)" = "solid",
+                                   "dx/dt = 0 (y=2-2x)" = "dashed",
+                                   "dy/dt = 0 (y=0)" = "solid",
+                                   "dy/dt = 0 (y=(1.5-x)/1.5)" = "dashed")) +
+  # Añadir puntos de equilibrio
+  geom_point(data = equilibrios, aes(x = x, y = y), 
+             color = "black", size = 5, shape = 21, fill = "yellow", stroke = 2) +
+  xlim(-0.2, 1.5) +
+  ylim(-0.2, 1.5) +
+  labs(color = "Isoclina", linetype = "Isoclina")
+
+print(p2)
+```
+
+### Paso 6: Simular trayectorias
+
+```{r ejercicio1_trayectorias}
+# Definir el modelo para deSolve
+modelo_comp <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    dx <- x * (2 - 2*x - y)
+    dy <- y * (1.5 - x - 1.5*y)
+    return(list(c(dx, dy)))
+  })
+}
+
+# Simular desde varios puntos iniciales
+puntos_iniciales <- list(
+  c(0.1, 0.1),
+  c(0.8, 0.2),
+  c(0.2, 0.8),
+  c(1.2, 1.2)
+)
+
+# Resolver para cada punto inicial
+trayectorias <- data.frame()
+for (i in seq_along(puntos_iniciales)) {
+  y0 <- puntos_iniciales[[i]]
+  sol <- ode(y = c(x = y0[1], y = y0[2]), 
+             times = seq(0, 50, by = 0.1),
+             func = modelo_comp, 
+             parms = NULL)
+  
+  sol_df <- as.data.frame(sol)
+  sol_df$trayectoria <- i
+  trayectorias <- rbind(trayectorias, sol_df)
+}
+
+# Graficar con trayectorias
+p3 <- graficar_campo(campo_comp, 
+                     titulo = "Competencia - Campo Vectorial + Trayectorias",
+                     x_label = "Especie x",
+                     y_label = "Especie y") +
+  # Añadir trayectorias
+  geom_path(data = trayectorias, aes(x = x, y = y, color = factor(trayectoria)),
+            size = 1.2, alpha = 0.7) +
+  # Añadir puntos iniciales
+  geom_point(data = data.frame(x = sapply(puntos_iniciales, `[`, 1),
+                               y = sapply(puntos_iniciales, `[`, 2)),
+             color = "black", size = 4, shape = 23, fill = "orange") +
+  # Añadir puntos de equilibrio
+  geom_point(data = equilibrios, aes(x = x, y = y), 
+             color = "black", size = 5, shape = 21, fill = "yellow", stroke = 2) +
+  xlim(-0.2, 1.5) +
+  ylim(-0.2, 1.5) +
+  labs(color = "Trayectoria") +
+  theme(legend.position = "right")
+
+print(p3)
+```
+
+---
+
+## Ejercicio 2: Depredador-Presa (Lotka-Volterra Clásico)
+
+**Sistema:**
+$$\frac{dx}{dt} = x(\lambda - by)$$
+$$\frac{dy}{dt} = y(-\mu + cx)$$
+
+Parámetros: $\lambda = 0.5$, $b = 0.02$, $\mu = 0.4$, $c = 0.01$.
+
+### Definir y visualizar
+
+```{r ejercicio2_completo, fig.width=12, fig.height=8}
+# Parámetros
+lambda <- 0.5; b <- 0.02; mu <- 0.4; c <- 0.01
+
+# Funciones
+dx_lv <- function(x, y) {
+  x * (lambda - b*y)
+}
+
+dy_lv <- function(x, y) {
+  y * (-mu + c*x)
+}
+
+# Puntos de equilibrio
+eq_lv <- data.frame(
+  nombre = c("E1", "E2"),
+  x = c(0, mu/c),
+  y = c(0, lambda/b)
+)
+
+# Campo vectorial
+campo_lv <- crear_campo_vectorial(
+  dx_func = dx_lv,
+  dy_func = dy_lv,
+  x_range = c(0, 60),
+  y_range = c(0, 40),
+  n_points = 15,
+  escala = 1.5
+)
+
+# Isoclinas
+x_iso_lv <- seq(0, 60, length.out = 100)
+isoclinas_lv <- data.frame(
+  x = c(rep(0, 100), x_iso_lv),
+  y = c(seq(0, 40, length.out = 100), rep(lambda/b, 100)),
+  tipo = c(rep("dx/dt = 0 (x=0)", 100), rep("dx/dt = 0 (y=λ/b)", 100))
+)
+
+isoclinas_lv2 <- data.frame(
+  x = c(rep(mu/c, 100), seq(0, 60, length.out = 100)),
+  y = c(seq(0, 40, length.out = 100), rep(0, 100)),
+  tipo = c(rep("dy/dt = 0 (x=μ/c)", 100), rep("dy/dt = 0 (y=0)", 100))
+)
+
+isoclinas_lv <- rbind(isoclinas_lv, isoclinas_lv2)
+
+# Simular trayectorias
+puntos_ini_lv <- list(c(10, 5), c(30, 20), c(50, 10))
+trayectorias_lv <- data.frame()
+
+modelo_lv <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    dx <- x * (lambda - b*y)
+    dy <- y * (-mu + c*x)
+    return(list(c(dx, dy)))
+  })
+}
+
+for (i in seq_along(puntos_ini_lv)) {
+  y0 <- puntos_ini_lv[[i]]
+  sol <- ode(y = c(x = y0[1], y = y0[2]), 
+             times = seq(0, 100, by = 0.1),
+             func = modelo_lv, 
+             parms = c(lambda = lambda, b = b, mu = mu, c = c))
+  
+  sol_df <- as.data.frame(sol)
+  sol_df$trayectoria <- i
+  trayectorias_lv <- rbind(trayectorias_lv, sol_df)
+}
+
+# Graficar
+p_lv <- graficar_campo(campo_lv, 
+                       titulo = "Depredador-Presa (Lotka-Volterra)",
+                       x_label = "Presas (x)",
+                       y_label = "Depredadores (y)") +
+  geom_line(data = isoclinas_lv, aes(x = x, y = y, color = tipo), 
+            size = 1, alpha = 0.7, linetype = "dashed") +
+  geom_path(data = trayectorias_lv, aes(x = x, y = y, color = factor(trayectoria)),
+            size = 1, alpha = 0.8) +
+  geom_point(data = eq_lv, aes(x = x, y = y), 
+             color = "black", size = 5, shape = 21, fill = "yellow", stroke = 2) +
+  scale_color_manual(values = c("dx/dt = 0 (x=0)" = "red", 
+                                "dx/dt = 0 (y=λ/b)" = "red",
+                                "dy/dt = 0 (x=μ/c)" = "blue",
+                                "dy/dt = 0 (y=0)" = "blue",
+                                "1" = "purple", "2" = "orange", "3" = "brown")) +
+  xlim(0, 60) +
+  ylim(0, 40) +
+  labs(color = "Elemento")
+
+print(p_lv)
+```
+
+---
+
+## Ejercicio 3: Modelo del Quimiostato
+
+**Sistema:**
+$$\frac{dy}{dt} = r(C)y - qy$$
+$$\frac{dC}{dt} = q(C^{(0)} - C) - \beta r(C)y$$
+
+Donde $r(C) = \frac{aC}{C+A}$ (Función de Monod).
+
+### Definir y visualizar
+
+```{r ejercicio3_completo, fig.width=12, fig.height=8}
+# Parámetros
+a <- 1.2; A <- 0.5; q <- 0.5; C0 <- 10; beta <- 2
+
+# Función de Monod
+r_monod <- function(C) {
+  (a * C) / (C + A)
+}
+
+# Funciones del sistema
+dy_chem <- function(y, C) {
+  r_monod(C) * y - q * y
+}
+
+dC_chem <- function(y, C) {
+  q * (C0 - C) - beta * r_monod(C) * y
+}
+
+# Puntos de equilibrio (calculados numéricamente)
+# En equilibrio: r(C*) = q => (a*C*)/(C*+A) = q
+# Resolviendo: C* = A*q/(a-q)
+C_star <- A * q / (a - q)
+# De la segunda ecuación: q(C0 - C*) = beta*r(C*)*y*
+# y* = q(C0 - C*) / (beta*r(C*))
+y_star <- q * (C0 - C_star) / (beta * r_monod(C_star))
+
+eq_chem <- data.frame(
+  nombre = "E*",
+  y = y_star,
+  C = C_star
+)
+
+cat("Equilibrio: y* =", y_star, ", C* =", C_star, "\n")
+
+# Campo vectorial
+campo_chem <- crear_campo_vectorial(
+  dx_func = function(C, y) dC_chem(y, C),
+  dy_func = function(C, y) dy_chem(y, C),
+  x_range = c(0, 12),
+  y_range = c(0, 3),
+  n_points = 15,
+  escala = 0.3
+)
+
+# Renombrar para consistencia
+colnames(campo_chem) <- c("C", "y", "dC", "dy", "dC_norm", "dy_norm")
+
+# Isoclinas
+C_iso <- seq(0, 12, length.out = 100)
+# dy/dt = 0: r(C) = q => (a*C)/(C+A) = q
+# Resolviendo: C = A*q/(a-q) (línea vertical)
+isoclinas_chem <- data.frame(
+  C = c(rep(C_star, 100), C_iso),
+  y = c(seq(0, 3, length.out = 100), rep(0, 100)),
+  tipo = c(rep("dy/dt = 0", 100), rep("dC/dt = 0", 100))
+)
+
+# Simular trayectorias
+puntos_ini_chem <- list(c(10, 0.1), c(5, 2), c(2, 1))
+trayectorias_chem <- data.frame()
+
+modelo_chem <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    r_C <- (a * C) / (C + A)
+    dy <- r_C * y - q * y
+    dC <- q * (C0 - C) - beta * r_C * y
+    return(list(c(dy, dC)))
+  })
+}
+
+for (i in seq_along(puntos_ini_chem)) {
+  y0 <- puntos_ini_chem[[i]]
+  sol <- ode(y = c(y = y0[1], C = y0[2]), 
+             times = seq(0, 30, by = 0.1),
+             func = modelo_chem, 
+             parms = c(a = a, A = A, q = q, C0 = C0, beta = beta))
+  
+  sol_df <- as.data.frame(sol)
+  sol_df$trayectoria <- i
+  trayectorias_chem <- rbind(trayectorias_chem, sol_df)
+}
+
+# Graficar
+p_chem <- ggplot(campo_chem, aes(x = C, y = y)) +
+  geom_segment(aes(xend = C + dC_norm, yend = y + dy_norm),
+               arrow = arrow(length = unit(0.15, "cm")),
+               color = "steelblue", alpha = 0.7) +
+  geom_line(data = isoclinas_chem, aes(x = C, y = y, color = tipo), 
+            size = 1.2, alpha = 0.8, linetype = "dashed") +
+  geom_path(data = trayectorias_chem, aes(x = C, y = y, color = factor(trayectoria)),
+            size = 1.2, alpha = 0.8) +
+  geom_point(data = eq_chem, aes(x = C, y = y), 
+             color = "black", size = 6, shape = 21, fill = "yellow", stroke = 2) +
+  scale_color_manual(values = c("dy/dt = 0" = "red", "dC/dt = 0" = "blue",
+                                "1" = "purple", "2" = "orange", "3" = "brown")) +
+  labs(title = "Quimiostato - Campo Vectorial + Trayectorias",
+       x = "Nutriente (C)",
+       y = "Biomasa (y)",
+       color = "Elemento") +
+  xlim(0, 12) +
+  ylim(0, 3) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+print(p_chem)
+```
+
+---
+
+## Ejercicio 4: Tu Turno - Modelo SIR
+
+Crea un análisis completo del modelo SIR:
+
+$$\frac{dS}{dt} = -\beta S I$$
+$$\frac{dI}{dt} = \beta S I - \gamma I$$
+
+Con parámetros: $\beta = 0.0005$, $\gamma = 0.1$, población total $N = 1000$.
+
+```{r ejercicio4_plantilla}
+# Parámetros
+beta <- 0.0005
+gamma <- 0.1
+N <- 1000
+
+# Define las funciones dS/dt y dI/dt
+dS_sir <- function(S, I) {
+  # Tu código aquí
+}
+
+dI_sir <- function(S, I) {
+  # Tu código aquí
+}
+
+# Encuentra los puntos de equilibrio
+# Tu análisis aquí
+
+# Crea el campo vectorial
+# Tu código aquí
+
+# Simula trayectorias
+# Tu código aquí
+
+# Grafica todo junto
+# Tu código aquí
+```
+
+---
+
+## Resumen de Funciones Útiles
+
+```{r resumen_funciones, eval=FALSE}
+# Crear campo vectorial
+crear_campo_vectorial <- function(dx_func, dy_func, x_range, y_range, 
+                                  n_points = 15, escala = 0.5) {
+  # Crea una malla de puntos y calcula derivadas
+}
+
+# Graficar campo
+graficar_campo <- function(campo_df, titulo = "", x_label = "x", y_label = "y") {
+  # Visualiza el campo vectorial con ggplot2
+}
+
+# Resolver ODE (ejemplo)
+model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    dx <- ... # tu ecuación
+    dy <- ... # tu ecuación
+    return(list(c(dx, dy)))
+  })
+}
+
+# Resolver numéricamente
+out <- ode(y = c(x = 1, y = 1), times = seq(0, 100, by = 0.1), 
+           func = model, parms = c())
+```
+
+---
+
+## Consejos Prácticos
+
+1. **Ajusta la escala:** Si las flechas son muy grandes o pequeñas, modifica el parámetro `escala` en `crear_campo_vectorial()`.
+2. **Número de puntos:** Aumenta `n_points` para un campo más denso (pero más lento).
+3. **Colores:** Personaliza los colores modificando los valores en `scale_color_manual()`.
+4. **Tiempo de simulación:** Aumenta el tiempo en `seq(0, T, by = dt)` para ver más dinámica.
+5. **Puntos iniciales:** Experimenta con diferentes puntos iniciales para entender la estructura del sistema.

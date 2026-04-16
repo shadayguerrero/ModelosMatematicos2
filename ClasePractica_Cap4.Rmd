@@ -1,0 +1,228 @@
+---
+title: "Modelación Matemática en Ecología: Clase Práctica - Capítulo 4"
+author: "Manus AI"
+date: "23 de marzo de 2026"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Introducción y Preliminares Matemáticos (Capítulo 4)
+
+¡Bienvenido a la clase práctica del Capítulo 4! En esta sesión, daremos el salto de los modelos de una sola especie (que vimos en el Capítulo 1) a los **modelos de múltiples especies que interactúan**. Este es un paso fundamental en la ecología matemática, ya que ninguna especie vive aislada en la naturaleza.
+
+Exploraremos dos de los modelos más clásicos e importantes:
+1.  **El Modelo de Lotka-Volterra:** La base matemática para entender las interacciones depredador-presa.
+2.  **El Modelo del Quimiostato:** Un sistema de laboratorio que nos permite estudiar el crecimiento bacteriano y el consumo de nutrientes en un ambiente controlado.
+
+Utilizaremos R y los paquetes `deSolve` (para resolver ecuaciones diferenciales) y `ggplot2` (para visualización) para simular y analizar estos sistemas.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# Instalar y cargar paquetes necesarios
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(ggplot2, deSolve, gridExtra)
+```
+
+---
+
+## 1. Las Ecuaciones de Lotka-Volterra (Sección 4.1)
+
+El modelo de Lotka-Volterra es el punto de partida para estudiar las interacciones depredador-presa. Fue desarrollado independientemente por Alfred J. Lotka (1925) y Vito Volterra (1926). Volterra lo creó para explicar las fluctuaciones observadas en las poblaciones de peces (presas) y tiburones (depredadores) en el Mar Adriático.
+
+### El Modelo Matemático
+
+El modelo describe la dinámica de dos poblaciones:
+-   $x(t)$: Número de presas (ej. peces) en el tiempo $t$.
+-   $y(t)$: Número de depredadores (ej. tiburones) en el tiempo $t$.
+
+Las ecuaciones diferenciales son:
+
+$$ 
+\frac{dx}{dt} = x(\lambda - by) = \lambda x - bxy 
+$$ 
+$$ 
+\frac{dy}{dt} = y(-\mu + cx) = -\mu y + cxy 
+$$ 
+
+**Interpretación Ecológica de los Parámetros:**
+-   $\lambda$: Tasa de crecimiento intrínseco de las presas en ausencia de depredadores.
+-   $b$: Tasa de depredación (eficiencia con la que los depredadores capturan presas).
+-   $\mu$: Tasa de mortalidad de los depredadores en ausencia de presas (mueren de hambre).
+-   $c$: Eficiencia de conversión (cuántas presas consumidas se traducen en nuevos depredadores).
+
+### Problema Ecológico Guiado: Linces y Liebres
+
+Uno de los ejemplos más famosos de ciclos depredador-presa es el de la liebre americana (*Lepus americanus*) y el lince canadiense (*Lynx canadensis*), documentado por los registros de pieles de la Compañía de la Bahía de Hudson.
+
+Vamos a simular este sistema. Supongamos los siguientes parámetros:
+-   $\lambda = 0.5$ (Las liebres crecen rápido)
+-   $b = 0.02$ (Tasa de encuentro y captura)
+-   $\mu = 0.4$ (Los linces mueren si no comen)
+-   $c = 0.01$ (Eficiencia de conversión de liebres a linces)
+
+Poblaciones iniciales: 40 liebres y 10 linces.
+
+```{r lotka_volterra}
+# 1. Definir el modelo
+lotka_volterra <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    dx <- lambda * x - b * x * y
+    dy <- -mu * y + c * x * y
+    return(list(c(dx, dy)))
+  })
+}
+
+# 2. Parámetros y condiciones iniciales
+params_lv <- c(lambda = 0.5, b = 0.02, mu = 0.4, c = 0.01)
+state_lv <- c(x = 40, y = 10) # x = liebres, y = linces
+times_lv <- seq(0, 100, by = 0.1) # Simular por 100 años
+
+# 3. Resolver las ecuaciones
+out_lv <- ode(y = state_lv, times = times_lv, func = lotka_volterra, parms = params_lv)
+out_lv_df <- as.data.frame(out_lv)
+
+# 4. Visualización: Series de Tiempo
+p1 <- ggplot(out_lv_df, aes(x = time)) +
+  geom_line(aes(y = x, color = "Liebres (Presa)"), size = 1) +
+  geom_line(aes(y = y, color = "Linces (Depredador)"), size = 1) +
+  scale_color_manual(values = c("Liebres (Presa)" = "#009E73", "Linces (Depredador)" = "#D55E00")) +
+  labs(title = "Dinámica Depredador-Presa (Series de Tiempo)",
+       x = "Tiempo (años)",
+       y = "Tamaño de Población",
+       color = "Especie") +
+  theme_minimal()
+
+# 5. Visualización: Plano de Fase (Órbitas)
+p2 <- ggplot(out_lv_df, aes(x = x, y = y)) +
+  geom_path(color = "blue", size = 1) +
+  geom_point(aes(x = state_lv["x"], y = state_lv["y"]), color = "red", size = 3) + # Punto inicial
+  annotate("text", x = state_lv["x"] + 5, y = state_lv["y"], label = "Inicio", color = "red") +
+  labs(title = "Plano de Fase (Órbita)",
+       x = "Liebres (x)",
+       y = "Linces (y)") +
+  theme_minimal()
+
+# Mostrar ambos gráficos juntos
+grid.arrange(p1, p2, ncol = 2)
+```
+
+**Análisis de los Resultados:**
+1.  **Ciclos Periódicos:** El gráfico de series de tiempo muestra oscilaciones regulares. Las poblaciones suben y bajan repetidamente.
+2.  **Desfase:** Observa que el pico de la población de depredadores (linces) ocurre *después* del pico de la población de presas (liebres). Específicamente, el máximo de presas precede al máximo de depredadores en aproximadamente un cuarto de ciclo.
+3.  **Órbitas Cerradas:** En el plano de fase (gráfico derecho), la trayectoria forma una curva cerrada (una órbita). Esto significa que el sistema vuelve exactamente a su estado inicial y repite el ciclo infinitamente. El punto rojo marca el inicio de la simulación.
+
+### Ejercicio Propuesto 1: Análisis de Equilibrios y Estabilidad
+
+El modelo de Lotka-Volterra tiene dos puntos de equilibrio (donde $\frac{dx}{dt} = 0$ y $\frac{dy}{dt} = 0$).
+
+1.  Encuentra matemáticamente los dos puntos de equilibrio $(x^*, y^*)$ en función de los parámetros $\lambda, b, \mu, c$.
+2.  Calcula los valores numéricos de estos equilibrios usando los parámetros del ejemplo de linces y liebres.
+3.  Modifica el código R anterior para simular el sistema comenzando *exactamente* en el equilibrio no trivial (el que no es cero). ¿Qué observas en los gráficos?
+4.  Ahora, simula el sistema comenzando muy cerca del equilibrio (por ejemplo, suma 1 a la población de liebres). ¿La trayectoria se acerca al equilibrio, se aleja o forma una órbita alrededor de él? ¿Qué nos dice esto sobre la estabilidad del equilibrio?
+
+---
+
+## 2. El Quimiostato (Sección 4.2)
+
+Un quimiostato es un aparato de laboratorio utilizado para cultivar bacterias de forma continua. A diferencia de un cultivo en lote (donde los nutrientes se agotan), en un quimiostato se bombea nutriente fresco constantemente y se extrae el cultivo (bacterias + medio) a la misma tasa. Esto permite estudiar el crecimiento bacteriano en un estado estacionario.
+
+### El Modelo Matemático
+
+Definimos las variables:
+-   $y(t)$: Número (o biomasa) de bacterias en el quimiostato.
+-   $C(t)$: Concentración del nutriente limitante en el quimiostato.
+
+Las ecuaciones diferenciales son:
+
+$$ 
+\frac{dy}{dt} = r(C)y - qy 
+$$ 
+$$ 
+\frac{dC}{dt} = q(C^{(0)} - C) - \beta r(C)y 
+$$ 
+
+**Interpretación de los Parámetros:**
+-   $q = Q/V$: Tasa de dilución (flujo $Q$ dividido por el volumen $V$). Es la tasa a la que el contenido es "lavado" del quimiostato.
+-   $C^{(0)}$: Concentración del nutriente en el reservorio de entrada.
+-   $\beta$: Inverso del rendimiento (cuánto nutriente se consume para producir una unidad de bacteria).
+-   $r(C)$: Tasa de crecimiento per cápita de las bacterias, que depende de la concentración de nutrientes.
+
+**La Función de Monod:**
+La tasa de crecimiento $r(C)$ no es constante. Sigue la ecuación de Monod (similar a la cinética de Michaelis-Menten en enzimas):
+
+$$ 
+r(C) = \frac{aC}{C + A} 
+$$ 
+
+Donde $a$ es la tasa máxima de crecimiento y $A$ es la constante de semisaturación (la concentración de nutriente a la cual el crecimiento es la mitad del máximo).
+
+### Problema Ecológico Guiado: Cultivo de *E. coli*
+
+Vamos a simular el crecimiento de *Escherichia coli* limitando la glucosa en un quimiostato.
+
+Parámetros asumidos:
+-   $a = 1.2$ (Tasa máxima de crecimiento, por hora)
+-   $A = 0.5$ (Constante de semisaturación, mg/L)
+-   $q = 0.5$ (Tasa de dilución, por hora)
+-   $C^{(0)} = 10$ (Concentración de glucosa de entrada, mg/L)
+-   $\beta = 2$ (Se consumen 2 mg de glucosa por cada unidad de biomasa bacteriana)
+
+Condiciones iniciales: $y = 0.1$ (poca biomasa), $C = 10$ (quimiostato lleno de nutriente).
+
+```{r quimiostato}
+# 1. Definir el modelo del quimiostato
+chemostat_model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    # Función de Monod
+    r_C <- (a * C) / (C + A)
+    
+    # Ecuaciones diferenciales
+    dy <- r_C * y - q * y
+    dC <- q * (C0 - C) - beta * r_C * y
+    
+    return(list(c(dy, dC)))
+  })
+}
+
+# 2. Parámetros y condiciones iniciales
+params_chem <- c(a = 1.2, A = 0.5, q = 0.5, C0 = 10, beta = 2)
+state_chem <- c(y = 0.1, C = 10)
+times_chem <- seq(0, 20, by = 0.1) # Simular por 20 horas
+
+# 3. Resolver las ecuaciones
+out_chem <- ode(y = state_chem, times = times_chem, func = chemostat_model, parms = params_chem)
+out_chem_df <- as.data.frame(out_chem)
+
+# 4. Visualización
+ggplot(out_chem_df, aes(x = time)) +
+  geom_line(aes(y = y, color = "Biomasa Bacteriana (y)"), size = 1) +
+  geom_line(aes(y = C, color = "Nutriente (C)"), size = 1) +
+  scale_color_manual(values = c("Biomasa Bacteriana (y)" = "#0072B2", "Nutriente (C)" = "#E69F00")) +
+  labs(title = "Dinámica del Quimiostato",
+       subtitle = "Cultivo continuo de bacterias",
+       x = "Tiempo (horas)",
+       y = "Concentración / Biomasa",
+       color = "Variable") +
+  theme_minimal()
+```
+
+**Análisis de los Resultados:**
+1.  **Fase de Crecimiento:** Inicialmente, hay mucho nutriente y pocas bacterias. Las bacterias crecen exponencialmente y el nutriente comienza a disminuir rápidamente.
+2.  **Estado Estacionario (Equilibrio):** A diferencia del modelo de Lotka-Volterra que oscila, el quimiostato alcanza un equilibrio estable. La biomasa bacteriana se estabiliza en un valor constante, y la concentración de nutriente también se estabiliza en un nivel bajo. En este punto, el crecimiento bacteriano compensa exactamente la pérdida por dilución ($r(C) = q$).
+
+### Ejercicio Propuesto 2: El Fenómeno de "Lavado" (Washout)
+
+El operador del quimiostato puede controlar la tasa de dilución ($q$) ajustando el flujo de las bombas. Si el flujo es demasiado rápido, las bacterias serán expulsadas del quimiostato más rápido de lo que pueden reproducirse. A esto se le llama "lavado" o *washout*.
+
+1.  Modifica el código R anterior para simular el sistema con una tasa de dilución alta: $q = 1.5$. Mantén los demás parámetros iguales.
+2.  Genera la gráfica de las series de tiempo. ¿Qué le sucede a la biomasa bacteriana ($y$) y a la concentración de nutriente ($C$) a largo plazo?
+3.  **Análisis Matemático:** Para que las bacterias sobrevivan, su tasa de crecimiento máxima ($a$) debe ser mayor que la tasa de dilución ($q$). Además, incluso si $a > q$, el nutriente de entrada $C^{(0)}$ debe ser suficientemente alto. El equilibrio de supervivencia ocurre cuando $r(C^*) = q$. Usa la función de Monod para despejar $C^*$ (la concentración de nutriente en equilibrio).
+4.  Calcula el valor de $C^*$ con los parámetros originales ($q=0.5$). ¿Coincide con lo que observas en la primera gráfica?
+
+---
+
+## Conclusión
+
+En este capítulo hemos introducido dos modelos fundamentales que forman la base de la ecología de poblaciones interactuantes. El modelo de Lotka-Volterra nos muestra cómo las interacciones simples pueden generar dinámicas complejas y oscilatorias. El modelo del quimiostato nos demuestra cómo un sistema abierto con flujo de recursos puede alcanzar estados estacionarios estables, o colapsar si las condiciones de flujo superan la capacidad biológica de los organismos. Estos conceptos son esenciales para entender desde la dinámica de ecosistemas naturales hasta el diseño de biorreactores industriales.
